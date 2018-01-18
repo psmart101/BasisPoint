@@ -45,21 +45,62 @@ def generate_id(id_type):
     return 1
 
 
-class portfolio:
+class Portfolio:
     def __init__(self):
         self.transactions = pd.DataFrame()
         self.id = generate_id("portfolio")
 
-    def build_transactions(self, transaction_input, input_type="RH"):
-        """
-
-        :param transaction_input:
+    def build_transactions(self, transaction_input, input_type="ML"):
+        """Generate transactions from iterable nested input and add to portfolio as attribute.
+        :param transaction_input: nested list-like (read_csv format) to be processed as transactions.
         :param input_type: Code for the type of transactions to import.
         :return:
         """
         transactions = pd.DataFrame()
-        transactions = pd.read_csv(input_path, parse_dates=True, infer_datetime_format=True, index_col=0)
+        # TODO: Implement support for input formats other than list.
+        if type(transaction_input) == list:
+            transactions = pd.DataFrame(transaction_input)
+            # transactions = pd.read_csv(input_path, parse_dates=True, infer_datetime_format=True, index_col=0)
 
+        if input_type == "ML":
+            transactions = pd.DataFrame.from_records(transaction_input[1:], index='Trade Date', columns=transaction_input[0])
+            transactions.index = transactions.index.to_datetime()
+
+            # TODO: Setup exception handlers for case when keywords do not have trailing space(s)
+            # Rename columns to standardized format
+            transactions.rename(index=str, inplace=True,
+                                columns={"Description 1 ": "Direction",
+                                         "Description 1": "Direction",
+                                         "Symbol/CUSIP #": "Symbol",
+                                         "Price ($)": "Price",
+                                         "Amount ($)": "Notional"})
+            # Trim transactions to buys and sells (for now)
+            # TODO: Consider other types of transactions in transaction log.
+            transactions = transactions.loc[transactions['Direction'].isin(("Purchase ", "Sale "))]
+            # Drop unnecessary columns
+            transactions.drop(labels=["Settlement Date", "Pending/Settled", "Account Nickname", "Account Registration",
+                                      "Account #", "Type", "Description 2"])
+
+        # Convert strings to numbers where applicable
+        transactions = transactions.apply(pd.to_numeric, errors='ignore')
+        print(transactions.head())
+        self.transactions = transactions
+
+    def get_positions(self, asof_date=None):
+        """ Quick function to find positions for a portfolio given a date.
+            Does not include original trade prices for cost basis calculations.
+            Must have transactions loaded to run.
+        :param asof_date: Datetime-like object to compare with pd datetime index of portfolio.transactions.
+        :return:
+        """
+        assert bool(len(self.transactions)), "No transactions."
+
+        positions = {}
+
+        for security in set(self.transactions['Symbol']):
+            sec_transactions = self.transactions[self.transactions['Symbol'] == security &
+                                                 self.transactions.index <= asof_date]
+            positions[security] = sum(sec_transactions["Quantity"])
 
 if __name__ == "__main__":
     graph_plot(None, None)
