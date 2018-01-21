@@ -2,6 +2,7 @@ from bokeh.plotting import figure, output_file, show, save
 from bokeh.layouts import row
 
 import pandas as pd
+import csv
 import os
 
 
@@ -64,7 +65,6 @@ class Portfolio:
 
         if input_type == "ML":
             transactions = pd.DataFrame.from_records(transaction_input[1:], index='Trade Date', columns=transaction_input[0])
-            transactions.index = transactions.index.to_datetime()
 
             # TODO: Setup exception handlers for case when keywords do not have trailing space(s)
             # Rename columns to standardized format
@@ -76,12 +76,13 @@ class Portfolio:
                                          "Amount ($)": "Notional"})
             # Trim transactions to buys and sells (for now)
             # TODO: Consider other types of transactions in transaction log.
-            transactions = transactions.loc[transactions['Direction'].isin(("Purchase ", "Sale "))]
+            transactions = transactions.loc[transactions['Direction'].isin(("Purchase ", "Sale ", "Purchase", "Sale"))]
             # Drop unnecessary columns
-            transactions.drop(labels=["Settlement Date", "Pending/Settled", "Account Nickname", "Account Registration",
-                                      "Account #", "Type", "Description 2"])
+            transactions.drop(columns=["Settlement Date", "Pending/Settled", "Account Nickname", "Account Registration",
+                                      "Account #", "Type", "Description 2"], inplace=True)
 
         # Convert strings to numbers where applicable
+        transactions.index = pd.to_datetime(transactions.index)
         transactions = transactions.apply(pd.to_numeric, errors='ignore')
         print(transactions.head())
         self.transactions = transactions
@@ -91,16 +92,51 @@ class Portfolio:
             Does not include original trade prices for cost basis calculations.
             Must have transactions loaded to run.
         :param asof_date: Datetime-like object to compare with pd datetime index of portfolio.transactions.
-        :return:
+        :return: Pandas series with sums of quantities as of asof_date, indexed by symbol
         """
-        assert bool(len(self.transactions)), "No transactions."
+        return self.transactions[:asof_date].groupby(['Symbol'])['Quantity'].sum()
 
-        positions = {}
+    """
+    def vwap(df):
+        q = df.Quantity.values
+        p = df.Price.values
+        return df.assign(vwap=(p * q).sum() / q.sum())
+    """
 
-        for security in set(self.transactions['Symbol']):
-            sec_transactions = self.transactions[self.transactions['Symbol'] == security &
-                                                 self.transactions.index <= asof_date]
-            positions[security] = sum(sec_transactions["Quantity"])
+def read_transactions(transaction_file, df=True):
+    """ Temp function to read transactions from csv.
+
+    :param transaction_file:
+    :return:
+    """
+    with open("input/"+transaction_file, "r") as csv_file:
+        tx_list = list(csv.reader(csv_file))
+
+    if df:
+        tx_df = pd.DataFrame.from_records(tx_list[1:], index='Trade Date', columns=tx_list[0])
+
+        # TODO: Setup exception handlers for case when keywords do not have trailing space(s)
+        # Rename columns to standardized format
+        tx_df.rename(index=str, inplace=True,
+                            columns={"Description 1 ": "Direction",
+                                     "Description 1": "Direction",
+                                     "Symbol/CUSIP #": "Symbol",
+                                     "Price ($)": "Price",
+                                     "Amount ($)": "Notional"})
+        # Trim transactions to buys and sells (for now)
+        # TODO: Consider other types of transactions in transaction log.
+        tx_df = tx_df.loc[tx_df['Direction'].isin(("Purchase ", "Sale ", "Purchase", "Sale"))]
+        # Drop unnecessary columns
+        tx_df.drop(columns=["Settlement Date", "Pending/Settled", "Account Nickname", "Account Registration",
+                            "Account #", "Type", "Description 2"], inplace=True)
+        tx_df.index = pd.to_datetime(tx_df.index)
+        tx_df = tx_df.apply(pd.to_numeric, errors='ignore')
+        return tx_df
+    else:
+        return tx_list
 
 if __name__ == "__main__":
-    graph_plot(None, None)
+    # graph_plot(None, None)
+    test = Portfolio()
+    transactions = read_transactions("test_input.csv")
+    test.build_transactions(transactions)
